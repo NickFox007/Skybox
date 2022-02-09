@@ -277,7 +277,12 @@ public void ChangeCvar_VIPCore(ConVar convar, const char[] oldValue, const char[
 
 public Action CmdSB(int client, int args)
 {	
-	DisplayMainMenu(client);	
+	DisplayMainMenu(client);
+	
+	char sVip[8192];
+	VIP_GetClientFeatureString(client, g_cFeature, sVip, sizeof(sVip));	
+	
+	PrintToConsole(client, "%s",sVip);
 	return Plugin_Handled;
 }
 
@@ -327,8 +332,10 @@ public int hasRights(int client, int index){
 	
 	if(g_bVIPCore)
 	{
-		char sVip[1024];
-		VIP_GetClientFeatureString(client, g_cFeature, sVip, sizeof(sVip));	
+		char sVip[8192];
+		VIP_GetClientFeatureString(client, g_cFeature, sVip, sizeof(sVip));
+		
+		if(StrContains(sVip, "SKY_ALL")>-1) return 1;
 		if(StrContains(sVip, g_sSkyboxName[index])>-1) return 1;
 	}
 	
@@ -473,7 +480,7 @@ public int MenuChoose_Handler(Menu menu, MenuAction action, int param1, int para
 			char cInfo[64];
 			menu.GetItem(param2, cInfo, sizeof(cInfo));
 			int iInfo = StringToInt(cInfo);
-			if(hasRights(param1, iInfo))			
+			if(iInfo == -1 || hasRights(param1, iInfo))			
 			return (g_iSelected[param1] ==  iInfo) ? ITEMDRAW_DISABLED: ITEMDRAW_DEFAULT;
 			else return ITEMDRAW_RAWLINE;
 		}
