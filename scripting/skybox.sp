@@ -10,45 +10,56 @@
 #pragma newdecls required
 #pragma semicolon 1
 
+#define SKY_MAX 512
+
 char
-	g_cFeature[] = "skybox",
-	g_sSkybox[512][64],
-	g_sSkyboxName[512][128];
+	g_cFeature[] = "Skybox",
+	g_sSkybox[SKY_MAX][64],
+	g_sSkyboxName[SKY_MAX][128];
 
 Handle
 	g_hCookie_Sky,
 	g_hCookie_Show;
+
 KeyValues
 	g_Kv;
+
 Menu
-	g_MenuChoose,
-	g_MenuMain;
+	g_MenuChoose;
+
 bool
 	g_bShopLoaded[MAXPLAYERS+1],
 	g_bVIPLoaded[MAXPLAYERS+1],
+	g_bCookieLoaded[MAXPLAYERS+1],
 	g_bLateLoad,
 	g_bVIPCore,
 	g_bShopCore,
 	g_bDontShow[MAXPLAYERS+1];
 
 int
-	g_iBuyPrice,
-	g_iSellPrice,
-	g_iBuyTime,
 	g_iSelSB[MAXPLAYERS+1],
 	g_iSelected[MAXPLAYERS+1],
-	g_bUseSB[MAXPLAYERS+1],
+	g_iPrice[SKY_MAX],
+	g_iSellPrice[SKY_MAX],
+	g_iDuration[SKY_MAX],
 	g_iSkyCount;
 
-ItemId g_iID;
-ConVar CVARB, CVARS, CVART, CVARShop, CVARVIP, g_CvarSkyName;
+ItemId
+	g_iID[SKY_MAX];
+CategoryId
+	g_iCategory_id;
+
+ConVar
+	CVARShop,
+	CVARVIP,
+	g_CvarSkyName;
 
 public Plugin myinfo =
 {
 	name = "[VIP+SHOP] Skybox",
 	description = "Allow players to choose skyboxes",
 	author = "NF & White Wolf",
-	version = "1.1.1",
+	version = "1.2",
 	url = "http://steamcommunity.com/id/doctor_white http://steamcommunity.com/id/Deathknife273/ https://vk.com/nf_dev"
 }
 
@@ -59,10 +70,42 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
+public void OnMapStart()
+{	
+	char cBuffer[2048];
+	
+	//Skybox suffixes.
+	static char suffix[][] = {
+		"bk",
+		"Bk",
+		"dn",
+		"Dn",
+		"ft",
+		"Ft",
+		"lf",
+		"Lf",
+		"rt",
+		"Rt",
+		"up",
+		"Up",
+	};
+	
+	for(int j = 0; j < g_iSkyCount; j++)
+	{
+		for (int i = 0; i < sizeof(suffix); ++i)
+			{
+				FormatEx(cBuffer, sizeof(cBuffer), "materials/skybox/%s%s.vtf", g_sSkybox[j], suffix[i]);
+				if (FileExists(cBuffer, false)) AddFileToDownloadsTable(cBuffer);
+				
+				FormatEx(cBuffer, sizeof(cBuffer), "materials/skybox/%s%s.vmt", g_sSkybox[j], suffix[i]);
+				if (FileExists(cBuffer, false)) AddFileToDownloadsTable(cBuffer);
+			}	
+	}
+}
+
 public void OnLibraryAdded(const char[] szName) 
 {
 	if(StrEqual(szName,"vip_core")&&CVARVIP.IntValue==1) LoadVIPCore();
-	if(StrEqual(szName,"shop")&&CVARShop.IntValue==1) LoadShopCore();
 }
 
 public void OnLibraryRemoved(const char[] szName) 
@@ -89,6 +132,10 @@ int GetSpectatorTarget(int client)
 	return target;
 }
 
+public void Shop_Started()
+{
+	LoadShopCore();
+}
 
 public void OnPluginStart()
 {
@@ -97,40 +144,36 @@ public void OnPluginStart()
 	
 	g_CvarSkyName = FindConVar("sv_skyname");
 	
-	//if (VIP_IsVIPLoaded()) LoadVIPCore();	
-	
 	RegConsoleCmd("sm_skybox",CmdSB);
-	
-	//if (Shop_IsStarted()) LoadShopCore();
 
-	(CVARB = CreateConVar("sm_skybox_shop_price", "20000", "Цена покупки SkyBox.", _, true, 0.0)).AddChangeHook(ChangeCvar_Buy);
-	(CVARS = CreateConVar("sm_skybox_shop_sellprice", "10000", "Цена продажи SkyBox.", _, true, 0.0)).AddChangeHook(ChangeCvar_Sell);
-	(CVART = CreateConVar("sm_skybox_shop_time", "604800", "Время действия покупки SkyBox в секундах.", _, true, 0.0)).AddChangeHook(ChangeCvar_Time);
-	
 	(CVARShop = CreateConVar("sm_skybox_shop_use", "1", "Использовать ядро Shop.", _, true, 0.0, true, 1.0)).AddChangeHook(ChangeCvar_ShopCore);
 	(CVARVIP = CreateConVar("sm_skybox_vip_use", "1", "Использовать ядро VIP.", _, true, 0.0, true, 1.0)).AddChangeHook(ChangeCvar_VIPCore);
 	
-	AutoExecConfig(true, "skybox", "sourcemod");	
-	
-	Autoexec();		
-	
-	g_MenuChoose = new Menu(MenuChoose_Handler, MenuAction_Select|MenuAction_Cancel|MenuAction_DisplayItem);
+	g_MenuChoose = new Menu(MenuChoose_Handler, MenuAction_Select|MenuAction_Cancel|MenuAction_DisplayItem|MenuAction_DrawItem);
 	g_MenuChoose.SetTitle("Выберите небо");
 	g_MenuChoose.AddItem("-1", "Стандартный");
 	g_MenuChoose.ExitBackButton = true;
-	LoadSkybox();	
 	
-	if(g_bLateLoad) CreateTimer(0.5, Timer_DelayReload);
+	LoadSkybox();
+	
+	AutoExecConfig(true, "skybox", "sourcemod");
+
+	if (Shop_IsStarted()) Shop_Started();
+	
+	CreateTimer(0.5, Timer_DelayReload);
 }
 
 Action Timer_DelayReload(Handle hTimer){
 
-	for(int i = 1;i < MAXPLAYERS + 1; i++) if(IsValidClient(i)) OnClientPostAdminCheck(i);
-
+	for(int i = 1;i < MAXPLAYERS + 1; i++) if(IsValidClient(i)) 
+	{
+		OnClientPostAdminCheck(i);
+		g_bCookieLoaded[i] = true;
+	}
 }
 
 int GetSelected(int iClient){
-	if(hasRights(iClient)) return g_iSelected[iClient];
+	if(hasRights(iClient, g_iSelected[iClient])) return g_iSelected[iClient];
 	else return -1;
 }
 
@@ -159,13 +202,6 @@ public void OnGameFrame(){
 	
 }
 
-void Autoexec(){
-
-	g_iBuyPrice = CVARB.IntValue;
-	g_iSellPrice = CVARS.IntValue;
-	g_iBuyTime = CVART.IntValue;
-}
-
 Action Timer_DelayVIPCore(Handle hTimer)
 {
 	LoadVIPCore();
@@ -181,10 +217,9 @@ void LoadVIPCore()
 	if(!VIP_IsVIPLoaded()) CreateTimer(1.0, Timer_DelayVIPCore);
 	if(g_bVIPCore) return;
 
-	VIP_RegisterFeature(g_cFeature, BOOL, SELECTABLE, OnSkyboxItemSelect);
+	VIP_RegisterFeature(g_cFeature, STRING, SELECTABLE, OnSkyboxItemSelect);
 	
 	if(g_bLateLoad)	for(int i = 1; i<MAXPLAYERS+1;i++) if(IsValidClient(i)) VIP_OnClientLoaded(i,true);
-		
 
 	g_bVIPCore = true;
 
@@ -197,127 +232,111 @@ void UnloadVIPCore()
 	VIP_UnregisterFeature(g_cFeature);
 
 	g_bVIPCore = false;
-
 }
 
 void LoadShopCore()
 {
 	if(!Shop_IsStarted()) CreateTimer(1.0, Timer_DelayShopCore);
 
-	if(g_bShopCore) return;
+	if(g_bShopCore || CVARShop.IntValue == 0) return;
 
-	CategoryId category_id = Shop_RegisterCategory("skyboxes", "Скайбоксы", "");
+	g_iCategory_id = Shop_RegisterCategory("skybox", "Скайбоксы", "");
 		
-	if (Shop_StartItem(category_id, "shop_skybox"))
-	{		
-		Shop_SetInfo("Небо [!SkyBox]", "Смена скайбокса",0, 0, Item_Togglable, 1);
-		Shop_SetCallbacks(OnItemRegistered, OnEquipItem);
-		Shop_EndItem();
+	for(int i = 0; i < g_iSkyCount; i++)
+	{
+		if (g_iPrice[i] > -1 && Shop_StartItem(g_iCategory_id, g_sSkybox[i]))
+		{		
+			Shop_SetInfo(g_sSkyboxName[i], "Взгляни на небо по новому!",g_iPrice[i], g_iSellPrice[i], Item_Togglable, g_iDuration[i]);
+			Shop_SetCallbacks(OnItemRegistered, OnEquipItem);
+			Shop_EndItem();
+		}
 	}
-	
 	if(g_bLateLoad) for(int i = 1; i<MAXPLAYERS+1;i++) if(IsValidClient(i)) g_bShopLoaded[i] = true;
 	
 	g_bShopCore = true;
-
 }
 
 void UnloadShopCore()
 {
-
 	if(!g_bShopCore||!Shop_IsStarted()) return;
 	Shop_UnregisterMe();
 	g_bShopCore = false;
-
 }
 
 public void ChangeCvar_ShopCore(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	if(convar.IntValue==1) LoadShopCore();
-	else UnloadShopCore();
-	
+	else UnloadShopCore();	
 }
 
 public void ChangeCvar_VIPCore(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	if(convar.IntValue==1) LoadVIPCore();
-	else UnloadVIPCore();
-	
-}
-
-public void ChangeCvar_Buy(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	g_iBuyPrice = convar.IntValue;
-	if(g_bShopCore) Shop_SetItemPrice(g_iID, g_iBuyPrice);
-}
-
-public void ChangeCvar_Sell(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	g_iSellPrice = convar.IntValue;
-	if(g_bShopCore) Shop_SetItemSellPrice(g_iID, g_iSellPrice);	
-}
-
-public void ChangeCvar_Time(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	g_iBuyTime = convar.IntValue;
-	if(g_bShopCore) Shop_SetItemValue(g_iID, g_iBuyTime);
+	else UnloadVIPCore();	
 }
 
 public Action CmdSB(int client, int args)
 {	
-	DisplayMainMenu(client);
-	
+	DisplayMainMenu(client);	
 	return Plugin_Handled;
 }
 
 public void OnPluginEnd()
 {
-
 	UnloadShopCore();
-	UnloadVIPCore();
-	
+	UnloadVIPCore();	
 }
 
 bool IsValidClient(int client)
 {
-
 	if(client>0&&client<65&&IsClientInGame(client)&&!IsFakeClient(client)) return true;
 	else return false;
+}
 
+int FindSkyIndex(const char[] sSky)
+{
+	for(int i; i < g_iSkyCount; i++) if(StrEqual(g_sSkybox[i], sSky)) return i;
+	
+	return -1;
 }
 
 public void OnItemRegistered(CategoryId category_id, const char[] sCategory, const char[] sItem, ItemId item_id)
 {
-	g_iID = item_id;	
+	int index = FindSkyIndex(sItem);
 	
-	Shop_SetItemPrice(g_iID, g_iBuyPrice);
-	Shop_SetItemSellPrice(g_iID, g_iSellPrice);	
-	Shop_SetItemValue(g_iID, g_iBuyTime);	
+	if(index > -1) g_iID[index] = item_id;
 }
 
 public ShopAction OnEquipItem(int iClient, CategoryId category_id, const char[] sCategory, ItemId item_id, const char[] sItem, bool isOn, bool elapsed)
 {
 	if (isOn || elapsed)
 	{
-		g_bUseSB[iClient] = false;
-		return Shop_UseOff;
+		PrintMes(iClient, "Отключить данную возможность нельзя");
 	}
-
-	g_bUseSB[iClient] = true;
-
+	
 	return Shop_UseOn;	
 }
 
-public void PrintMes(int client){
-	CPrintToChat(client,"{darkred}[{lime}SkyBox{darkred}]{default} Для использования данной функции купите её в !shop в разделе Скайбоксы, либо же приобретите VIP-статус");	
+public void PrintMes(int client , const char[] text){
+	CPrintToChat(client,"{darkred}[{lime}SkyBox{darkred}]{default} %s", text);	
 }
 
-public int hasRights(int client){
-	if(g_bVIPCore&&VIP_GetClientFeatureStatus(client, g_cFeature) == ENABLED) return 1;
-	if(g_bShopCore)
-	{	
-		if(g_bUseSB[client]) return 2;
-		if(Shop_IsClientItemToggled(client, g_iID)) return 2;
+public int hasRights(int client, int index){
+
+	if(index == -1) return 0;
+	
+	if(g_bVIPCore)
+	{
+		char sVip[1024];
+		VIP_GetClientFeatureString(client, g_cFeature, sVip, sizeof(sVip));	
+		if(StrContains(sVip, g_sSkyboxName[index])>-1) return 1;
 	}
+	
+	if(g_bShopCore)
+	{
+		if(Shop_IsClientHasItem(client, g_iID[index]) && Shop_IsClientItemToggled(client, g_iID[index])) return 2;
+	}
+
 	return 0;
 }
 
@@ -334,14 +353,19 @@ public Action Timer_Check(Handle timer, any client)
 
 public void OnClientPostAdminCheck(int client)
 {
-	ShowSky(client,-1);
+	if(!IsFakeClient(client)) ShowSky(client,-1);
 	CreateTimer(2.0,Timer_Check,client);
+}
+
+public void OnClientCookiesCached(int client)
+{
+	g_bCookieLoaded[client] = true;
 }
 
 public void OnClientDisconnect(int client)
 {
-	g_bUseSB[client] = 0;
 	g_bShopLoaded[client] = false;
+	g_bCookieLoaded[client] = false;
 	g_bVIPLoaded[client] = false;
 
 }
@@ -368,8 +392,6 @@ public void OnPlayerJoin(int client)
 
 public void Shop_OnAuthorized(int client)
 {
-	
-	g_bUseSB[client] = Shop_IsClientItemToggled(client, g_iID);
 
 	g_bShopLoaded[client] = true;
 	
@@ -387,19 +409,19 @@ void DisplayChooseMenu(int client)
 
 void DisplayMainMenu(int client)
 {
-	g_MenuMain = new Menu(MenuMain_Handler);
+	Menu g_MenuMain = new Menu(MenuMain_Handler);
 	
 	char sSelect[128];
 	
-	if(g_iSelected[client]==-1) sSelect = "Стандарт";
+	if(!hasRights(client, GetSelected(client))) sSelect = "Стандарт";
 	else FormatEx(sSelect,sizeof(sSelect),g_sSkyboxName[g_iSelected[client]]);
-	if(!hasRights(client)) sSelect = "нет доступа";
-	Format(sSelect,sizeof(sSelect),"Меню SkyBox\n \nТекущее:\n%s\n ",sSelect);
+	Format(sSelect,sizeof(sSelect),"Меню SkyBox\n \nТекущее:\n   %s\n ",sSelect);
 	
 	g_MenuMain.SetTitle(sSelect);
 	
-	if(hasRights(client)) g_MenuMain.AddItem("select", "Выбор неба\n ");
-	else g_MenuMain.AddItem("buy", "Выбор неба\n    нет доступа\n ");	
+	g_MenuMain.AddItem("select", "Выбор неба\n ");
+	
+	g_MenuMain.AddItem("shop", "Магазин\n   Приобрети и пользуйся!\n ");
 	
 	char sShow[64];
 	
@@ -446,6 +468,16 @@ public int MenuChoose_Handler(Menu menu, MenuAction action, int param1, int para
 			
 			return 0;
 		}
+		case MenuAction_DrawItem:
+		{
+			char cInfo[64];
+			menu.GetItem(param2, cInfo, sizeof(cInfo));
+			int iInfo = StringToInt(cInfo);
+			if(hasRights(param1, iInfo))			
+			return (g_iSelected[param1] ==  iInfo) ? ITEMDRAW_DISABLED: ITEMDRAW_DEFAULT;
+			else return ITEMDRAW_RAWLINE;
+		}
+		
 	}
 	
 	return 0;
@@ -473,7 +505,11 @@ public int MenuMain_Handler(Menu menu, MenuAction action, int client, int param2
 				bShow = false;
 				DisplayChooseMenu(client);
 			}
-			if(StrEqual(cInfo,"buy")) PrintMes(client);
+			
+			if(StrEqual(cInfo,"shop")){
+				bShow = false;
+				GoToShop(client);
+			}
 			
 			if(bShow) DisplayMainMenu(client);
 		}
@@ -486,10 +522,14 @@ public int MenuMain_Handler(Menu menu, MenuAction action, int client, int param2
 	return 0;
 }
 
+void GoToShop(int client)
+{
+	if(g_bShopCore) Shop_ShowItemsOfCategory(client, g_iCategory_id);
+}
+
 void ShowSky(int iClient, int iSky)
 {
-	
-	if(g_iSelSB[iClient]==iSky) return;
+	if(g_iSelSB[iClient]==iSky || IsFakeClient(iClient)) return;
 	g_iSelSB[iClient] = iSky;
 	if (iSky==-1)
 	{
@@ -524,22 +564,7 @@ void LoadSkybox()
 	}
 	g_Kv.Rewind();
 	
-	//Skybox suffixes.
-	static char suffix[][] = {
-		"bk",
-		"Bk",
-		"dn",
-		"Dn",
-		"ft",
-		"Ft",
-		"lf",
-		"Lf",
-		"rt",
-		"Rt",
-		"up",
-		"Up",
-	};
-	
+		
 	if (g_Kv.GotoFirstSubKey())
 	{
 		char cPath[64];
@@ -553,16 +578,12 @@ void LoadSkybox()
 			g_MenuChoose.AddItem(sIndex,cBuffer);			
 			FormatEx(g_sSkybox[g_iSkyCount],64,"%s",cPath);
 			FormatEx(g_sSkyboxName[g_iSkyCount],128,"%s",cBuffer);
-			g_iSkyCount++;			
 			
-			for (int i = 0; i < sizeof(suffix); ++i)
-			{
-				FormatEx(cBuffer, sizeof(cBuffer), "materials/skybox/%s%s.vtf", cPath, suffix[i]);
-				if (FileExists(cBuffer, false)) AddFileToDownloadsTable(cBuffer);
-				
-				FormatEx(cBuffer, sizeof(cBuffer), "materials/skybox/%s%s.vmt", cPath, suffix[i]);
-				if (FileExists(cBuffer, false)) AddFileToDownloadsTable(cBuffer);
-			}			
+			g_iPrice[g_iSkyCount] = g_Kv.GetNum("price");
+			g_iSellPrice[g_iSkyCount] = g_Kv.GetNum("sellprice");
+			g_iDuration[g_iSkyCount] = g_Kv.GetNum("duration");
+			
+			g_iSkyCount++;		
 		} while (g_Kv.GotoNextKey());
 	}
 	
