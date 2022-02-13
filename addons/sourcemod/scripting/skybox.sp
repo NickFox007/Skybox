@@ -59,7 +59,7 @@ public Plugin myinfo =
 	name = "[VIP+SHOP] Skybox",
 	description = "Allow players to choose skyboxes",
 	author = "NF & White Wolf",
-	version = "1.2",
+	version = "1.2.1",
 	url = "http://steamcommunity.com/id/doctor_white http://steamcommunity.com/id/Deathknife273/ https://vk.com/nf_dev"
 }
 
@@ -158,7 +158,7 @@ public void OnPluginStart()
 	
 	AutoExecConfig(true, "skybox", "sourcemod");
 
-	if (Shop_IsStarted()) Shop_Started();
+	if (GetFeatureStatus(FeatureType_Native, "Shop_IsStarted") == FeatureStatus_Available && Shop_IsStarted()) Shop_Started();
 	
 	CreateTimer(0.5, Timer_DelayReload);
 }
@@ -247,7 +247,7 @@ void LoadShopCore()
 		if (g_iPrice[i] > -1 && Shop_StartItem(g_iCategory_id, g_sSkybox[i]))
 		{		
 			Shop_SetInfo(g_sSkyboxName[i], "Взгляни на небо по новому!",g_iPrice[i], g_iSellPrice[i], Item_Togglable, g_iDuration[i]);
-			Shop_SetCallbacks(OnItemRegistered, OnEquipItem);
+			Shop_SetCallbacks(OnItemRegistered, OnEquipItem);			
 			Shop_EndItem();
 		}
 	}
@@ -255,6 +255,7 @@ void LoadShopCore()
 	
 	g_bShopCore = true;
 }
+
 
 void UnloadShopCore()
 {
@@ -311,6 +312,7 @@ public void OnItemRegistered(CategoryId category_id, const char[] sCategory, con
 	
 	if(index > -1) g_iID[index] = item_id;
 }
+
 
 public ShopAction OnEquipItem(int iClient, CategoryId category_id, const char[] sCategory, ItemId item_id, const char[] sItem, bool isOn, bool elapsed)
 {
